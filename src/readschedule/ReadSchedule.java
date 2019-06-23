@@ -132,11 +132,13 @@ public class ReadSchedule
                     PreparedStatement ps = conn.prepareStatement("DELETE from smart WHERE manual = 0;");
                     ps.executeUpdate();
 
-                    ps = conn.prepareStatement("INSERT INTO smart (stanox, td) VALUES (?,?) ON DUPLICATE KEY UPDATE stanox=stanox");
+                    ps = conn.prepareStatement("INSERT INTO smart (stanox, td, reports) VALUES (?,?,1) ON DUPLICATE KEY UPDATE reports=1");
                     for (Object l : data)
                     {
                         JSONObject loc = (JSONObject) l;
-                        if (loc.has("STANOX") && !loc.getString("STANOX").trim().isEmpty() && loc.has("TD") && !loc.getString("TD").trim().isEmpty() && isInteger(loc.getString("STANOX")))
+                        if (loc.has("STANOX") && !loc.getString("STANOX").trim().isEmpty() &&
+                            loc.has("TD") && !loc.getString("TD").trim().isEmpty() &&
+                            isInteger(loc.getString("STANOX")))
                         {
                             ps.setString(1, loc.getString("STANOX"));
                             ps.setString(2, loc.getString("TD"));
@@ -185,7 +187,7 @@ public class ReadSchedule
                     PreparedStatement psBS2 = conn.prepareStatement("UPDATE schedules SET runs_mon=?, runs_tue=?, runs_wed=?, runs_thu=?, runs_fri=?, runs_sat=?, runs_sun=?, over_midnight=? WHERE schedule_uid=? AND date_from=? AND stp_indicator=? AND schedule_source='C'");
                     PreparedStatement psBSDel1 = conn.prepareStatement("DELETE FROM schedule_locations WHERE schedule_uid = ? AND stp_indicator = ? AND date_from = ? AND schedule_source = 'C'");
                     PreparedStatement psBSDel2 = conn.prepareStatement("DELETE FROM schedules WHERE schedule_uid = ? AND stp_indicator = ? AND date_from = ? AND schedule_source = 'C'");
-                    PreparedStatement psLoc = conn.prepareStatement("INSERT INTO schedule_locations (schedule_uid, date_from, stp_indicator, schedule_source, tiploc, scheduled_arrival, scheduled_departure, scheduled_pass, type, loc_index) VALUES (?,?,?,'C',?,?,?,?,?,?)");
+                    PreparedStatement psLoc = conn.prepareStatement("INSERT INTO schedule_locations (schedule_uid, date_from, stp_indicator, schedule_source, tiploc, scheduled_arrival, scheduled_departure, scheduled_pass, plat, line, path, activity, eng, pth, prf, type, loc_index) VALUES (?,?,?,'C',?,?,?,?,?,?,?,?,?,?,?,?,?)");
 
                     Calendar c = Calendar.getInstance();
                     c.set(Calendar.DAY_OF_MONTH, c.get(Calendar.DAY_OF_MONTH)-1);
@@ -326,8 +328,15 @@ public class ReadSchedule
                                         psLoc.setString(5, "");
                                         psLoc.setString(6, recordLO.scheduledDepartureTime);
                                         psLoc.setString(7, "");
-                                        psLoc.setString(8, "O");
-                                        psLoc.setInt(9, 0);
+                                        psLoc.setString(8, recordLO.platform);
+                                        psLoc.setString(9, recordLO.line);
+                                        psLoc.setString(10, "");
+                                        psLoc.setString(11, recordLO.activity);
+                                        psLoc.setString(12, recordLO.engineeringAllowance);
+                                        psLoc.setString(13, recordLO.pathingAllowance);
+                                        psLoc.setString(14, recordLO.performanceAllowance);
+                                        psLoc.setString(15, "O");
+                                        psLoc.setInt(16, 0);
                                         psLoc.addBatch();
                                         schedule.add(recordLO);
                                         break;
@@ -342,8 +351,15 @@ public class ReadSchedule
                                         psLoc.setString(5, recordLI.scheduledArrivalTime);
                                         psLoc.setString(6, recordLI.scheduledDepartureTime);
                                         psLoc.setString(7, recordLI.scheduledPassTime);
-                                        psLoc.setString(8, "I");
-                                        psLoc.setInt(9, schedule.size());
+                                        psLoc.setString(8, recordLI.platform);
+                                        psLoc.setString(9, recordLI.line);
+                                        psLoc.setString(10, recordLI.path);
+                                        psLoc.setString(11, recordLI.activity);
+                                        psLoc.setString(12, recordLI.engineeringAllowance);
+                                        psLoc.setString(13, recordLI.pathingAllowance);
+                                        psLoc.setString(14, recordLI.performanceAllowance);
+                                        psLoc.setString(15, "I");
+                                        psLoc.setInt(16, schedule.size());
                                         psLoc.addBatch();
                                         schedule.add(recordLI);
                                         break;
@@ -358,8 +374,15 @@ public class ReadSchedule
                                         psLoc.setString(5, recordLT.scheduledArrivalTime);
                                         psLoc.setString(6, "");
                                         psLoc.setString(7, "");
-                                        psLoc.setString(8, "T");
-                                        psLoc.setInt(9, schedule.size());
+                                        psLoc.setString(8, recordLT.platform);
+                                        psLoc.setString(9, "");
+                                        psLoc.setString(10, recordLT.path);
+                                        psLoc.setString(11, recordLT.activity);
+                                        psLoc.setString(12, "");
+                                        psLoc.setString(13, "");
+                                        psLoc.setString(14, "");
+                                        psLoc.setString(15, "T");
+                                        psLoc.setInt(16, schedule.size());
                                         psLoc.addBatch();
                                         schedule.add(recordLT);
 
