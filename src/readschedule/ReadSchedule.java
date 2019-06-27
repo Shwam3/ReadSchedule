@@ -229,7 +229,7 @@ public class ReadSchedule
                                         ResultSet rs = ps.executeQuery();
                                         if (rs.first())
                                         {
-                                            System.err.println("Already processed " + recordHD.dateOfExtract + " (" + yesterdayDMY + ")");
+                                            (isAuto ? System.out : System.err).println("Already processed " + recordHD.dateOfExtract + " (" + yesterdayDMY + ")");
                                             System.exit(3);
                                         }
 
