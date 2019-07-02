@@ -105,14 +105,20 @@ public class ReadSchedule
                     JSONObject obj = new JSONObject(line);
                     JSONArray data = obj.getJSONArray("TIPLOCDATA");
 
-                    PreparedStatement ps = conn.prepareStatement("INSERT INTO corpus (tiploc, stanox) VALUES (?,?) ON DUPLICATE KEY UPDATE tiploc=tiploc");
+                    PreparedStatement ps = conn.prepareStatement("INSERT INTO corpus (tiploc, stanox, tps_name, crs) " +
+                            "VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE stanox=VALUES(stanox), tps_name=VALUES(tps_name), crs=VALUES(crs)");
                     for (Object l : data)
                     {
                         JSONObject loc = (JSONObject) l;
-                        if (loc.has("STANOX") && !loc.getString("STANOX").trim().isEmpty() && loc.has("TIPLOC") && !loc.getString("TIPLOC").trim().isEmpty())
+                        if (loc.has("TIPLOC") && !loc.getString("TIPLOC").trim().isEmpty() && (
+                                loc.has("STANOX") && !loc.getString("STANOX").trim().isEmpty() ||
+                                loc.has("NLCDESC") && !loc.getString("NLCDESC").trim().isEmpty() ||
+                                loc.has("3ALPHA") && !loc.getString("3ALPHA").trim().isEmpty()))
                         {
                             ps.setString(1, loc.getString("TIPLOC"));
                             ps.setString(2, loc.getString("STANOX"));
+                            ps.setString(3, loc.getString("NLCDESC"));
+                            ps.setString(4, loc.getString("3ALPHA"));
                             ps.addBatch();
                         }
                     }
@@ -182,11 +188,11 @@ public class ReadSchedule
                     List<CIFLocRecord> schedule = new ArrayList<>();
 
                     PreparedStatement psHD = conn.prepareStatement("INSERT INTO cif_files (current_ref, last_ref, date, update_type, error_count) VALUES(?,?,?,?,?)");
-                    PreparedStatement psTI = conn.prepareStatement("INSERT INTO corpus (tiploc, stanox) VALUES (?,?) ON DUPLICATE KEY UPDATE stanox=stanox");
+                    PreparedStatement psTI = conn.prepareStatement("INSERT INTO corpus (tiploc, stanox, tps_name, crs) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE stanox=VALUES(stanox), tps_name=VALUES(tps_name), crs=VALUES(crs)");
                     PreparedStatement psBS1 = conn.prepareStatement("INSERT INTO schedules (schedule_uid, date_from, date_to, stp_indicator, schedule_source, days_run, identity) VALUES (?,?,?,?,'C',?,?)");
                     PreparedStatement psBS2 = conn.prepareStatement("UPDATE schedules SET runs_mon=?, runs_tue=?, runs_wed=?, runs_thu=?, runs_fri=?, runs_sat=?, runs_sun=?, over_midnight=? WHERE schedule_uid=? AND date_from=? AND stp_indicator=? AND schedule_source='C'");
-                    PreparedStatement psBSDel1 = conn.prepareStatement("DELETE FROM schedule_locations WHERE schedule_uid = ? AND stp_indicator = ? AND date_from = ? AND schedule_source = 'C'");
-                    PreparedStatement psBSDel2 = conn.prepareStatement("DELETE FROM schedules WHERE schedule_uid = ? AND stp_indicator = ? AND date_from = ? AND schedule_source = 'C'");
+                    PreparedStatement psBSDelLocs = conn.prepareStatement("DELETE FROM schedule_locations WHERE schedule_uid = ? AND stp_indicator = ? AND date_from = ? AND schedule_source = 'C'");
+                    PreparedStatement psBSDelScheds = conn.prepareStatement("DELETE FROM schedules WHERE schedule_uid = ? AND stp_indicator = ? AND date_from = ? AND schedule_source = 'C'");
                     PreparedStatement psLoc = conn.prepareStatement("INSERT INTO schedule_locations (schedule_uid, date_from, stp_indicator, schedule_source, tiploc, scheduled_arrival, scheduled_departure, scheduled_pass, plat, line, path, activity, eng, pth, prf, type, loc_index) VALUES (?,?,?,'C',?,?,?,?,?,?,?,?,?,?,?,?,?)");
 
                     Calendar c = Calendar.getInstance();
@@ -195,8 +201,8 @@ public class ReadSchedule
                     String yesterdayYMD = new SimpleDateFormat("yyMMdd").format(c.getTime());
 
                     long countTI = 0;
-                    long countBSDel1 = 0;
-                    long countBSDel2 = 0;
+                    long countBSDelLocs = 0;
+                    long countBSDelScheds = 0;
                     long countBS1 = 0;
                     long countBS2 = 0;
                     long countLoc = 0;
@@ -265,6 +271,8 @@ public class ReadSchedule
                                         CIFTIRecord recordTI = (CIFTIRecord) record;
                                         psTI.setString(1, recordTI.tiploc);
                                         psTI.setString(2, recordTI.stanox);
+                                        psTI.setString(3, recordTI.tpsDescription);
+                                        psTI.setString(4, recordTI.threeAlphaCode);
                                         psTI.addBatch();
                                         break;
                                     }
@@ -273,6 +281,8 @@ public class ReadSchedule
                                         CIFTARecord recordTA = (CIFTARecord) record;
                                         psTI.setString(1, recordTA.newTiploc);
                                         psTI.setString(2, recordTA.stanox);
+                                        psTI.setString(3, recordTA.tpsDescription);
+                                        psTI.setString(4, recordTA.threeAlphaCode);
                                         psTI.addBatch();
                                         break;
                                     }
@@ -283,14 +293,14 @@ public class ReadSchedule
                                         recordBS = (CIFBSRecord) record;
                                         if ("D".equals(recordBS.transactionType) || "R".equals(recordBS.transactionType))
                                         {
-                                            psBSDel1.setString(1, recordBS.trainUID);
-                                            psBSDel1.setString(2, recordBS.stpIndicator);
-                                            psBSDel1.setString(3, recordBS.dateRunsFrom);
-                                            psBSDel1.addBatch();
-                                            psBSDel2.setString(1, recordBS.trainUID);
-                                            psBSDel2.setString(2, recordBS.stpIndicator);
-                                            psBSDel2.setString(3, recordBS.dateRunsFrom);
-                                            psBSDel2.addBatch();
+                                            psBSDelLocs.setString(1, recordBS.trainUID);
+                                            psBSDelLocs.setString(2, recordBS.stpIndicator);
+                                            psBSDelLocs.setString(3, recordBS.dateRunsFrom);
+                                            psBSDelLocs.addBatch();
+                                            psBSDelScheds.setString(1, recordBS.trainUID);
+                                            psBSDelScheds.setString(2, recordBS.stpIndicator);
+                                            psBSDelScheds.setString(3, recordBS.dateRunsFrom);
+                                            psBSDelScheds.addBatch();
                                         }
 
                                         if ("N".equals(recordBS.transactionType) || "R".equals(recordBS.transactionType))
@@ -416,7 +426,7 @@ public class ReadSchedule
                             {
                                 System.err.println("Error no:      " + (++errcount));
                                 System.err.println("Record raw:    " + line);
-                                System.err.println("Record parsed: " + String.valueOf(record));
+                                System.err.println("Record parsed: " + record);
                                 System.err.println("Count:         " + (count+1));
 
                                 sqlex.printStackTrace();
@@ -426,8 +436,8 @@ public class ReadSchedule
                             if (count % 10000 == 0)
                             {
                                 countTI += LongStream.of(psTI.executeLargeBatch()).sum();
-                                countBSDel1 += LongStream.of(psBSDel1.executeLargeBatch()).sum();
-                                countBSDel2 += LongStream.of(psBSDel2.executeLargeBatch()).sum();
+                                countBSDelLocs += LongStream.of(psBSDelLocs.executeLargeBatch()).sum();
+                                countBSDelScheds += LongStream.of(psBSDelScheds.executeLargeBatch()).sum();
                                 countBS1 += LongStream.of(psBS1.executeLargeBatch()).sum();
                                 countBS2 += LongStream.of(psBS2.executeLargeBatch()).sum();
                                 countLoc += LongStream.of(psLoc.executeLargeBatch()).sum();
@@ -437,15 +447,15 @@ public class ReadSchedule
                         if (count % 10000 != 0)
                         {
                             countTI += LongStream.of(psTI.executeLargeBatch()).sum();
-                            countBSDel1 += LongStream.of(psBSDel1.executeLargeBatch()).sum();
-                            countBSDel2 += LongStream.of(psBSDel2.executeLargeBatch()).sum();
+                            countBSDelLocs += LongStream.of(psBSDelLocs.executeLargeBatch()).sum();
+                            countBSDelScheds += LongStream.of(psBSDelScheds.executeLargeBatch()).sum();
                             countBS1 += LongStream.of(psBS1.executeLargeBatch()).sum();
                             countBS2 += LongStream.of(psBS2.executeLargeBatch()).sum();
                             countLoc += LongStream.of(psLoc.executeLargeBatch()).sum();
                         }
 
-                        System.out.println(String.format("TI: %d, BSDel1: %d, BSDel2: %d, BS1: %d, BS2: %d, Loc: %d",
-                                           countTI, countBSDel1, countBSDel2, countBS1, countBS2, countLoc));
+                        System.out.println(String.format("TI: %d, BSDelLocs: %d, BSDelScheds: %d, BS1: %d, BS2: %d, Loc: %d",
+                                           countTI, countBSDelLocs, countBSDelScheds, countBS1, countBS2, countLoc));
 
                         System.out.print("Deleting expired activations... ");
                         PreparedStatement psActivations = conn.prepareStatement("DELETE FROM activations WHERE last_update < ? AND last_update != 0");
@@ -496,7 +506,7 @@ public class ReadSchedule
         return str;
     }
 
-    public static File downloadData(String type)
+    public static File downloadData(String type) throws IOException
     {
         File file = null;
         String url = "";
@@ -525,58 +535,43 @@ public class ReadSchedule
             url = "https://datafeeds.networkrail.co.uk/ntrod/CifFileAuthenticate?type=CIF_ALL_UPDATE_DAILY&day=toc-update-" + day + ".CIF.gz";
         }
         else
-            return null;
+            throw new IllegalArgumentException("'" + type + "' is not a downloadable file type");
 
         InputStream in = null;
         if (!file.exists())
         {
-            try
+           HttpsURLConnection con = (HttpsURLConnection) new URL(url).openConnection();
+            con.setRequestProperty("Authorization", "Basic " + DatatypeConverter.printBase64Binary((AUTH.getString("NROD_Username") + ":" + AUTH.getString("NROD_Password")).getBytes()).trim()); // Login details
+            con.setInstanceFollowRedirects(false);
+            System.out.println("Response: " + con.getResponseCode() + " " + con.getResponseMessage());
+            if (con.getResponseCode() == HttpsURLConnection.HTTP_MOVED_TEMP || con.getResponseCode() == HttpsURLConnection.HTTP_MOVED_PERM)
             {
-                HttpsURLConnection con = (HttpsURLConnection) new URL(url).openConnection();
-                con.setRequestProperty("Authorization", "Basic " + DatatypeConverter.printBase64Binary((AUTH.getString("NROD_Username") + ":" + AUTH.getString("NROD_Password")).getBytes()).trim()); // Login details
-                con.setInstanceFollowRedirects(false);
-                System.out.println("Response: " + con.getResponseCode() + " " + con.getResponseMessage());
-                if (con.getResponseCode() == HttpsURLConnection.HTTP_MOVED_TEMP || con.getResponseCode() == HttpsURLConnection.HTTP_MOVED_PERM)
-                {
-                    String newLocation = con.getHeaderField("Location");
-                    System.out.println("Redirected to: " + newLocation);
-                    con = (HttpsURLConnection) new URL(newLocation).openConnection();
-                }
-
-                InputStream errIn = con.getErrorStream();
-                if (con.getErrorStream() != null)
-                {
-                    Scanner s = new Scanner(errIn).useDelimiter("\\A");
-                    if (s.hasNext())
-                        System.err.println(s.next());
-                }
-
-                in = con.getInputStream();
-            }
-            catch (IOException e)
-            {
-                e.printStackTrace();
-
-                if (in == null)
-                    return null;
+                String newLocation = con.getHeaderField("Location");
+                System.out.println("Redirected to: " + newLocation);
+                con = (HttpsURLConnection) new URL(newLocation).openConnection();
             }
 
-            try
+            InputStream errIn = con.getErrorStream();
+            if (con.getErrorStream() != null)
             {
-                Files.copy(in, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                in.close();
-                System.out.println("File downloaded to " + file.getAbsolutePath());
-
-                return file;
+                Scanner s = new Scanner(errIn).useDelimiter("\\A");
+                if (s.hasNext())
+                    System.err.println(s.next());
             }
-            catch (IOException ex) { ex.printStackTrace(); }
+
+            in = con.getInputStream();
+
+            Files.copy(in, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            in.close();
+            System.out.println("File downloaded to " + file.getAbsolutePath());
+
+            return file;
         }
         else
         {
             System.out.println("Using existing file");
             return file;
         }
-        return null;
     }
 
     public static boolean isInteger(String s)
