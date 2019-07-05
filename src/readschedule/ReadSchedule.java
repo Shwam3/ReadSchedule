@@ -106,7 +106,7 @@ public class ReadSchedule
                     JSONArray data = obj.getJSONArray("TIPLOCDATA");
 
                     PreparedStatement ps = conn.prepareStatement("INSERT INTO corpus (tiploc, stanox, tps_name, crs) " +
-                            "VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE stanox=VALUES(stanox), tps_name=VALUES(tps_name), crs=VALUES(crs)");
+                            "VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE stanox=VALUES(stanox), crs=VALUES(crs)");
                     for (Object l : data)
                     {
                         JSONObject loc = (JSONObject) l;
