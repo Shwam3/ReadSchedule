@@ -110,10 +110,8 @@ public class ReadSchedule
                     for (Object l : data)
                     {
                         JSONObject loc = (JSONObject) l;
-                        if (loc.has("TIPLOC") && !loc.getString("TIPLOC").trim().isEmpty() && (
-                                loc.has("STANOX") && !loc.getString("STANOX").trim().isEmpty() ||
-                                loc.has("NLCDESC") && !loc.getString("NLCDESC").trim().isEmpty() ||
-                                loc.has("3ALPHA") && !loc.getString("3ALPHA").trim().isEmpty()))
+                        if (loc.has("TIPLOC") && !loc.getString("TIPLOC").trim().isEmpty() &&
+                                loc.has("STANOX") && !loc.getString("STANOX").trim().isEmpty())
                         {
                             ps.setString(1, loc.getString("TIPLOC"));
                             ps.setString(2, loc.getString("STANOX"));
@@ -269,21 +267,27 @@ public class ReadSchedule
                                     case TI:
                                     {
                                         CIFTIRecord recordTI = (CIFTIRecord) record;
-                                        psTI.setString(1, recordTI.tiploc);
-                                        psTI.setString(2, recordTI.stanox);
-                                        psTI.setString(3, recordTI.tpsDescription);
-                                        psTI.setString(4, recordTI.threeAlphaCode);
-                                        psTI.addBatch();
+                                        if (!recordTI.tiploc.trim().isEmpty() && !recordTI.stanox.trim().isEmpty())
+                                        {
+                                            psTI.setString(1, recordTI.tiploc);
+                                            psTI.setString(2, recordTI.stanox);
+                                            psTI.setString(3, recordTI.tpsDescription);
+                                            psTI.setString(4, recordTI.threeAlphaCode);
+                                            psTI.addBatch();
+                                        }
                                         break;
                                     }
                                     case TA:
                                     {
                                         CIFTARecord recordTA = (CIFTARecord) record;
-                                        psTI.setString(1, recordTA.newTiploc);
-                                        psTI.setString(2, recordTA.stanox);
-                                        psTI.setString(3, recordTA.tpsDescription);
-                                        psTI.setString(4, recordTA.threeAlphaCode);
-                                        psTI.addBatch();
+                                        if (!recordTA.tiploc.trim().isEmpty() && !recordTA.stanox.trim().isEmpty())
+                                        {
+                                            psTI.setString(1, recordTA.newTiploc);
+                                            psTI.setString(2, recordTA.stanox);
+                                            psTI.setString(3, recordTA.tpsDescription);
+                                            psTI.setString(4, recordTA.threeAlphaCode);
+                                            psTI.addBatch();
+                                        }
                                         break;
                                     }
                                     case BS:
