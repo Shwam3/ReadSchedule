@@ -496,20 +496,10 @@ public class ReadSchedule
         System.out.printf("Done in %02d:%02d:%02d.%d (%d)%n", (time / 3600000) % 60, (time / 60000) % 60, (time / 1000) % 60, time % 1000, time);
     }
 
-    public static String lengthen(Object obj, int len)
+    private static File downloadData(String type) throws IOException
     {
-        String str = String.valueOf(obj);
-
-        while (str.length() < len)
-            str = str.concat(" ");
-
-        return str;
-    }
-
-    public static File downloadData(String type) throws IOException
-    {
-        File file = null;
-        String url = "";
+        File file;
+        String url;
         if ("corpus".equalsIgnoreCase(type))
         {
             file = new File(System.getProperty("java.io.tmpdir"), new SimpleDateFormat("yyyy-MM-dd").format(new Date()) + "-CORPUSExtract.json.gz");
@@ -537,7 +527,7 @@ public class ReadSchedule
         else
             throw new IllegalArgumentException("'" + type + "' is not a downloadable file type");
 
-        InputStream in = null;
+        InputStream in;
         if (!file.exists())
         {
            HttpsURLConnection con = (HttpsURLConnection) new URL(url).openConnection();
@@ -574,7 +564,7 @@ public class ReadSchedule
         }
     }
 
-    public static boolean isInteger(String s)
+    private static boolean isInteger(String s)
     {
         if (s.isEmpty())
             return false;
@@ -594,16 +584,16 @@ public class ReadSchedule
     }
 
     //<editor-fold defaultstate="collapsed" desc="CIF Types">
-    public static class CIFRecord
+    static class CIFRecord
     {
-        public final CIFRecordType type;
+        final CIFRecordType type;
 
-        public CIFRecord(CIFRecordType type)
+        CIFRecord(CIFRecordType type)
         {
             this.type = type;
         }
 
-        public static CIFRecord of(String record)
+        static CIFRecord of(String record)
         {
             CIFRecordType type = CIFRecordType.valueOf(record.substring(0, 2));
 
@@ -632,28 +622,28 @@ public class ReadSchedule
                 case CR:
                     return new CIFCRRecord(record);
                 case ZZ:
-                    return new CIFZZRecord(record);
+                    return new CIFZZRecord();
                 default:
                     throw new IllegalArgumentException(record.substring(0, 2) + " is not a valid CIF record type");
             }
         }
     }
 
-    public static class CIFHDRecord extends CIFRecord
+    static class CIFHDRecord extends CIFRecord
     {
-        static final int[] lengths = {2, 20, 6, 4, 7, 7, 1, 1, 6, 6, 20};
+      //static final int[] lengths = {2, 20, 6, 4, 7, 7, 1, 1, 6, 6, 20};
         static final int[] offsets = {2, 22, 28, 32, 39, 46, 47, 48, 54, 60, 80};
-        public final String fileMainframeIdentity;
-        public final String dateOfExtract;
-        public final String timeOfExtract;
-        public final String currentFileReference;
-        public final String lastFileReference;
-        public final String updateIndicator;
-        public final String version;
-        public final String userStartDate;
-        public final String userEndDate;
+        final String fileMainframeIdentity;
+        final String dateOfExtract;
+        final String timeOfExtract;
+        final String currentFileReference;
+        final String lastFileReference;
+        final String updateIndicator;
+        final String version;
+        final String userStartDate;
+        final String userEndDate;
 
-        public CIFHDRecord(String record)
+        CIFHDRecord(String record)
         {
             super(CIFRecordType.HD);
 
@@ -680,21 +670,21 @@ public class ReadSchedule
         }
     }
 
-    public static class CIFTIRecord extends CIFRecord
+    static class CIFTIRecord extends CIFRecord
     {
-        static final int[] lengths = {2, 7, 2, 6, 1, 26, 5, 4, 3, 16, 8};
+      //static final int[] lengths = {2, 7, 2, 6, 1, 26, 5, 4, 3, 16, 8};
         static final int[] offsets = {2, 9, 11, 17, 18, 44, 49, 53, 56, 72, 80};
-        public final String tiploc;
-        public final String capitalsIdentification;
-        public final String nlc;
-        public final String nlcCheckChar;
-        public final String tpsDescription;
-        public final String stanox;
-        public final String poMcpCode;
-        public final String threeAlphaCode;
-        public final String nlcDescription;
+        final String tiploc;
+        final String capitalsIdentification;
+        final String nlc;
+        final String nlcCheckChar;
+        final String tpsDescription;
+        final String stanox;
+        final String poMcpCode;
+        final String threeAlphaCode;
+        final String nlcDescription;
 
-        public CIFTIRecord(String record)
+        CIFTIRecord(String record)
         {
             super(CIFRecordType.TI);
 
@@ -720,22 +710,22 @@ public class ReadSchedule
         }
     }
 
-    public static class CIFTARecord extends CIFRecord
+    static class CIFTARecord extends CIFRecord
     {
-        static final int[] lengths = {2, 7, 2, 6, 1, 26, 5, 4, 3, 16, 7, 1};
+      //static final int[] lengths = {2, 7, 2, 6, 1, 26, 5, 4, 3, 16, 7, 1};
         static final int[] offsets = {2, 9, 11, 17, 18, 44, 49, 53, 56, 72, 79, 80};
-        public final String tiploc;
-        public final String capitalsIdentification;
-        public final String nlc;
-        public final String nlcCheckChar;
-        public final String tpsDescription;
-        public final String stanox;
-        public final String poMcpCode;
-        public final String threeAlphaCode;
-        public final String nlcDescription;
-        public final String newTiploc;
+        final String tiploc;
+        final String capitalsIdentification;
+        final String nlc;
+        final String nlcCheckChar;
+        final String tpsDescription;
+        final String stanox;
+        final String poMcpCode;
+        final String threeAlphaCode;
+        final String nlcDescription;
+        final String newTiploc;
 
-        public CIFTARecord(String record)
+        CIFTARecord(String record)
         {
             super(CIFRecordType.TA);
 
@@ -762,13 +752,13 @@ public class ReadSchedule
         }
     }
 
-    public static class CIFTDRecord extends CIFRecord
+    static class CIFTDRecord extends CIFRecord
     {
-        static final int[] lengths = {2, 7, 71};
+      //static final int[] lengths = {2, 7, 71};
         static final int[] offsets = {2, 9, 80};
-        public final String tiploc;
+        final String tiploc;
 
-        public CIFTDRecord(String record)
+        CIFTDRecord(String record)
         {
             super(CIFRecordType.TD);
 
@@ -782,26 +772,26 @@ public class ReadSchedule
         }
     }
 
-    public static class CIFAARecord extends CIFRecord
+    static class CIFAARecord extends CIFRecord
     {
-        static final int[] lengths = {2, 1, 6, 6, 6, 6, 7, 2, 1, 7, 1, 1, 1, 1, 31, 1};
+      //static final int[] lengths = {2, 1, 6, 6, 6, 6, 7, 2, 1, 7, 1, 1, 1, 1, 31, 1};
         static final int[] offsets = {2, 3, 9, 15, 21, 27, 34, 36, 37, 44, 45, 46, 47, 48, 79, 80};
-        public final String transactionType;
-        public final String baseUID;
-        public final String assocUID;
-        public final String assocUIDStartDate;
-        public final String assocUIDEndDate;
-        public final String assocDays;
-        public final String assocCat;
-        public final String assocDateInd;
-        public final String assocLocation;
-        public final String baseSuffixLocation;
-        public final String assocSuffixLocation;
-        public final String diagramType;
-        public final String associationType;
-        public final String stpIndicator;
+        final String transactionType;
+        final String baseUID;
+        final String assocUID;
+        final String assocUIDStartDate;
+        final String assocUIDEndDate;
+        final String assocDays;
+        final String assocCat;
+        final String assocDateInd;
+        final String assocLocation;
+        final String baseSuffixLocation;
+        final String assocSuffixLocation;
+        final String diagramType;
+        final String associationType;
+        final String stpIndicator;
 
-        public CIFAARecord(String record)
+        CIFAARecord(String record)
         {
             super(CIFRecordType.AA);
 
@@ -835,36 +825,36 @@ public class ReadSchedule
         }
     }
 
-    public static class CIFBSRecord extends CIFRecord
+    static class CIFBSRecord extends CIFRecord
     {
-        static final int[] lengths = {2, 1, 6, 6, 6, 7, 1, 1, 2, 4, 4, 1, 8, 1, 3, 4, 3, 6, 1, 1, 1, 1, 4, 4, 1, 1};
+      //static final int[] lengths = {2, 1, 6, 6, 6, 7, 1, 1, 2, 4, 4, 1, 8, 1, 3, 4, 3, 6, 1, 1, 1, 1, 4, 4, 1, 1};
         static final int[] offsets = {2, 3, 9, 15, 21, 28, 29, 30, 32, 36, 40, 41, 49, 50, 53, 57, 60, 66, 67, 68, 69, 70, 74, 78, 79, 80};
-        public final String transactionType;    // 1
-        public final String trainUID;           // 6
-        public final String dateRunsFrom;       // 6
-        public final String dateRunsTo;         // 6
-        public final String daysRun;            // 7
-        public final String bankHolidayRunning; // 1
-        public final String trainStatus;        // 1
-        public final String trainCategory;      // 2
-        public final String trainIdentity;      // 4
-        public final String headcode;           // 4
-        public final String courseIndicator;    // 1
-        public final String trainServiceCode;   // 8
-        public final String businessSector;     // 1
-        public final String powerType;          // 3
-        public final String timingLoad;         // 4
-        public final String speed;              // 3
-        public final String operatingChars;     // 6
-        public final String trainClass;         // 1
-        public final String sleepers;           // 1
-        public final String reservations;       // 1
-        public final String connectIndicator;   // 1
-        public final String cateringCode;       // 4
-        public final String serviceBranding;    // 4
-        public final String stpIndicator;       // 1
+        final String transactionType;
+        final String trainUID;
+        final String dateRunsFrom;
+        final String dateRunsTo;
+        final String daysRun;
+        final String bankHolidayRunning;
+        final String trainStatus;
+        final String trainCategory;
+        final String trainIdentity;
+        final String headcode;
+        final String courseIndicator;
+        final String trainServiceCode;
+        final String businessSector;
+        final String powerType;
+        final String timingLoad;
+        final String speed;
+        final String operatingChars;
+        final String trainClass;
+        final String sleepers;
+        final String reservations;
+        final String connectIndicator;
+        final String cateringCode;
+        final String serviceBranding;
+        final String stpIndicator;
 
-        public CIFBSRecord(String record)
+        CIFBSRecord(String record)
         {
             super(CIFRecordType.BS);
 
@@ -912,18 +902,18 @@ public class ReadSchedule
         }
     }
 
-    public static class CIFBXRecord extends CIFRecord
+    static class CIFBXRecord extends CIFRecord
     {
-        static final int[] lengths = {2, 4, 5, 2, 1, 8, 1, 57};
+      //static final int[] lengths = {2, 4, 5, 2, 1, 8, 1, 57};
         static final int[] offsets = {2, 6, 11, 13, 14, 22, 23, 80};
-        public final String tractionClass;
-        public final String uicCode;
-        public final String atocCode;
-        public final String applicableTimetableCode;
-        public final String retailTrainID;
-        public final String source;
+        final String tractionClass;
+        final String uicCode;
+        final String atocCode;
+        final String applicableTimetableCode;
+        final String retailTrainID;
+        final String source;
 
-        public CIFBXRecord(String record)
+        CIFBXRecord(String record)
         {
             super(CIFRecordType.BX);
 
@@ -946,42 +936,42 @@ public class ReadSchedule
         }
     }
 
-    public static class CIFLocRecord extends CIFRecord
+    static class CIFLocRecord extends CIFRecord
     {
         private String location;
 
-        public CIFLocRecord(CIFRecordType type)
+        CIFLocRecord(CIFRecordType type)
         {
             super(type);
         }
 
-        public String getLocation()
+        String getLocation()
         {
             return location;
         }
 
-        final public void setLocation(String location)
+        final void setLocation(String location)
         {
             this.location = location;
         }
     }
 
-    public static class CIFLORecord extends CIFLocRecord
+    static class CIFLORecord extends CIFLocRecord
     {
-        static final int[] lengths = {2, 7, 1, 5, 4, 3, 3, 2, 2, 12, 2, 37};
+      //static final int[] lengths = {2, 7, 1, 5, 4, 3, 3, 2, 2, 12, 2, 37};
         static final int[] offsets = {2, 9, 10, 15, 19, 22, 25, 27, 29, 41, 43, 80};
       //public final String location;
-        public final String locationIndex;
-        public final String scheduledDepartureTime;
-        public final String publicDepartureTime;
-        public final String platform;
-        public final String line;
-        public final String engineeringAllowance;
-        public final String pathingAllowance;
-        public final String activity;
-        public final String performanceAllowance;
+        final String locationIndex;
+        final String scheduledDepartureTime;
+        final String publicDepartureTime;
+        final String platform;
+        final String line;
+        final String engineeringAllowance;
+        final String pathingAllowance;
+        final String activity;
+        final String performanceAllowance;
 
-        public CIFLORecord(String record)
+        CIFLORecord(String record)
         {
             super(CIFRecordType.LO);
 
@@ -1010,27 +1000,27 @@ public class ReadSchedule
         }
     }
 
-    public static class CIFLIRecord extends CIFLocRecord
+    static class CIFLIRecord extends CIFLocRecord
     {
-        static final int[] lengths = {2, 7, 1, 5, 5, 5, 4, 4, 3, 3, 3, 12, 2, 2, 2, 20};
+      //static final int[] lengths = {2, 7, 1, 5, 5, 5, 4, 4, 3, 3, 3, 12, 2, 2, 2, 20};
         static final int[] offsets = {2, 9, 10, 15, 20, 25, 29, 33, 36, 39, 42, 54, 56, 58, 60, 80};
       //public final String location;
-        public final String locationIndex;
-        public final String scheduledArrivalTime;
-        public final String scheduledDepartureTime;
-        public final String scheduledPassTime;
-        public final String publicArrivalTime;
-        public final String publicDepartureTime;
-        public final String platform;
-        public final String line;
-        public final String path;
-        public final String activity;
-        public final String engineeringAllowance;
-        public final String pathingAllowance;
-        public final String performanceAllowance;
+        final String locationIndex;
+        final String scheduledArrivalTime;
+        final String scheduledDepartureTime;
+        final String scheduledPassTime;
+        final String publicArrivalTime;
+        final String publicDepartureTime;
+        final String platform;
+        final String line;
+        final String path;
+        final String activity;
+        final String engineeringAllowance;
+        final String pathingAllowance;
+        final String performanceAllowance;
 
 
-        public CIFLIRecord(String record)
+        CIFLIRecord(String record)
         {
             super(CIFRecordType.LI);
 
@@ -1064,19 +1054,19 @@ public class ReadSchedule
         }
     }
 
-    public static class CIFLTRecord extends CIFLocRecord
+    static class CIFLTRecord extends CIFLocRecord
     {
-        static final int[] lengths = {2, 7, 1, 5, 4, 3, 3, 12, 43};
+      //static final int[] lengths = {2, 7, 1, 5, 4, 3, 3, 12, 43};
         static final int[] offsets = {2, 9, 10, 15, 19, 22, 25, 37, 80};
       //public final String location;
-        public final String locationIndex;
-        public final String scheduledArrivalTime;
-        public final String publicArrivalTime;
-        public final String platform;
-        public final String path;
-        public final String activity;
+        final String locationIndex;
+        final String scheduledArrivalTime;
+        final String publicArrivalTime;
+        final String platform;
+        final String path;
+        final String activity;
 
-        public CIFLTRecord(String record)
+        CIFLTRecord(String record)
         {
             super(CIFRecordType.LT);
 
@@ -1100,33 +1090,33 @@ public class ReadSchedule
         }
     }
 
-    public static class CIFCRRecord extends CIFRecord
+    static class CIFCRRecord extends CIFRecord
     {
-        static final int[] lengths = {2, 7, 1, 2, 4, 4, 1, 8, 1, 3, 4, 3, 6, 1, 1, 1, 1, 4, 4, 4, 5, 8, 5};
+      //static final int[] lengths = {2, 7, 1, 2, 4, 4, 1, 8, 1, 3, 4, 3, 6, 1, 1, 1, 1, 4, 4, 4, 5, 8, 5};
         static final int[] offsets = {2, 9, 10, 12, 16, 20, 21, 29, 30, 33, 37, 40, 46, 47, 48, 49, 50, 54, 58, 62, 67, 75, 80};
-        public final String location;
-        public final String locationIndex;
-        public final String trainCategory;
-        public final String trainIdentity;
-        public final String headcode;
-        public final String courseIndicator;
-        public final String trainServiceCode;
-        public final String businessSector;
-        public final String powerType;
-        public final String timingLoad;
-        public final String speed;
-        public final String operatingChars;
-        public final String trainClass;
-        public final String sleepers;
-        public final String reservations;
-        public final String connectIndicator;
-        public final String cateringCode;
-        public final String serviceBranding;
-        public final String tractionClass;
-        public final String uicCode;
-        public final String retailTrainID;
+        final String location;
+        final String locationIndex;
+        final String trainCategory;
+        final String trainIdentity;
+        final String headcode;
+        final String courseIndicator;
+        final String trainServiceCode;
+        final String businessSector;
+        final String powerType;
+        final String timingLoad;
+        final String speed;
+        final String operatingChars;
+        final String trainClass;
+        final String sleepers;
+        final String reservations;
+        final String connectIndicator;
+        final String cateringCode;
+        final String serviceBranding;
+        final String tractionClass;
+        final String uicCode;
+        final String retailTrainID;
 
-        public CIFCRRecord(String record)
+        CIFCRRecord(String record)
         {
             super(CIFRecordType.CR);
 
@@ -1170,11 +1160,11 @@ public class ReadSchedule
 
     }
 
-    public static class CIFZZRecord extends CIFRecord
+    static class CIFZZRecord extends CIFRecord
     {
-        static final int[] lengths = {2, 78};
+      //static final int[] lengths = {2, 78};
 
-        public CIFZZRecord(String record)
+        CIFZZRecord()
         {
             super(CIFRecordType.ZZ);
         }
@@ -1186,26 +1176,9 @@ public class ReadSchedule
         }
     }
 
-    public static enum CIFRecordType
+    public enum CIFRecordType
     {
-        HD(CIFHDRecord.class),
-        TI(CIFTIRecord.class),
-        TA(CIFTARecord.class),
-        TD(CIFTDRecord.class),
-        AA(CIFAARecord.class),
-        BS(CIFBSRecord.class),
-        BX(CIFBXRecord.class),
-        LO(CIFLORecord.class),
-        LI(CIFLIRecord.class),
-        LT(CIFLTRecord.class),
-        CR(CIFCRRecord.class),
-        ZZ(CIFZZRecord.class);
-
-        public final Class<? extends CIFRecord> clazz;
-        private CIFRecordType(Class<? extends CIFRecord> clazz)
-        {
-            this.clazz = clazz;
-        }
+        HD, TI, TA, TD, AA, BS, BX, LO, LI, LT, CR, ZZ
     }
     //</editor-fold>
 }
