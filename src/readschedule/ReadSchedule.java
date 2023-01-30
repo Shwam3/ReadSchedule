@@ -3,9 +3,9 @@ package readschedule;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.json.JSONTokener;
 
 import javax.net.ssl.HttpsURLConnection;
-import javax.xml.bind.DatatypeConverter;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -27,6 +27,7 @@ import java.sql.Types;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
@@ -36,44 +37,48 @@ import java.util.zip.GZIPInputStream;
 
 public class ReadSchedule
 {
-    private static JSONObject AUTH;
+    private static JSONObject config = new JSONObject();
+    private static final File TEMP_DIR = new File(System.getProperty("java.io.tmpdir"));
 
     public static void main(String[] args)
     {
         long start = System.currentTimeMillis();
 
-        JSONObject config = new JSONObject();
-        config.put("doSmartCorpus", false);
-        config.put("fullCif", true);
-        config.put("noSched", false);
-        config.put("isAuto", false);
-        config.put("force", false);
-        config.put("cifDay", "");
+        JSONObject options = new JSONObject();
+        options.put("doSmartCorpus", false);
+        options.put("fullCif", true);
+        options.put("noSched", false);
+        options.put("isAuto", false);
+        options.put("force", false);
+        options.put("cifDay", "");
+        options.put("configDir", new File(System.getProperty("user.home", "C:"), ".easigmap").getAbsolutePath());
 
         if (args.length == 0)
         {
-            System.err.println("Usage ReadSchedule [doSmartCorpus] [isAuto] [noSched|dow] [fullCif]");
+            System.err.println("Usage ReadSchedule [doSmartCorpus] [isAuto] [noSched|dow] [fullCif] [-c=config_dir]");
             return;
         }
 
         for (String arg : args)
         {
             if (arg.equalsIgnoreCase("doSmartCorpus"))
-                config.put("doSmartCorpus", true);
+                options.put("doSmartCorpus", true);
             else if (arg.equalsIgnoreCase("isAuto"))
-                config.put("isAuto", true);
+                options.put("isAuto", true);
             else if (arg.equalsIgnoreCase("noSched"))
-                config.put("noSched", true);
+                options.put("noSched", true);
             else if (arg.equalsIgnoreCase("force"))
-                config.put("force", true);
+                options.put("force", true);
+            else if (arg.startsWith("-c="))
+                options.put("configDir", arg.substring(3));
             else if (arg.length() == 3)
             {
-                config.put("cifDay", arg);
-                config.put("fullCif", false);
+                options.put("cifDay", arg);
+                options.put("fullCif", false);
             }
         }
 
-        if (config.getBoolean("noSched") && !config.getBoolean("doSmartCorpus"))
+        if (options.getBoolean("noSched") && !options.getBoolean("doSmartCorpus"))
         {
             System.out.println("Nothing to do, exiting");
             return;
@@ -81,8 +86,8 @@ public class ReadSchedule
 
         try
         {
-            File authFile = new File(new File(System.getProperty("user.home", "C:"), ".easigmap"), "config.json");
-            AUTH = new JSONObject(new String(Files.readAllBytes(authFile.toPath())));
+            File authFile = new File(options.getString("configDir"), "config.json");
+            config = new JSONObject(new String(Files.readAllBytes(authFile.toPath())));
         }
         catch (IOException ex)
         {
@@ -94,8 +99,9 @@ public class ReadSchedule
         Connection conn = null;
         try
         {
-            conn = DriverManager.getConnection("jdbc:mariadb://localhost:3306/sigmaps?autoReconnect=true&rewriteBatchedStatements=true",
-                    AUTH.getString("DBUser"), AUTH.getString("DBPassword"));
+            conn = DriverManager.getConnection("jdbc:mariadb://" + config.optString("DBLocation", "localhost:3306/sigmaps") +
+                            "?autoReconnect=true&rewriteBatchedStatements=true",
+                    config.getString("DBUser"), config.getString("DBPassword"));
             conn.setAutoCommit(false);
         }
         catch (SQLException ex)
@@ -104,9 +110,9 @@ public class ReadSchedule
             System.exit(-1);
         }
 
-        doSmartCorpus(conn, config);
+        doSmartCorpus(conn, options);
 
-        doSchedule(conn, config);
+        doSchedule(conn, options);
 
         try { conn.rollback(); }
         catch (SQLException ex) { ex.printStackTrace(); }
@@ -126,11 +132,13 @@ public class ReadSchedule
         System.out.println("Downloading and processing CORPUS dataset...");
         try (BufferedReader br = new BufferedReader(new InputStreamReader(new GZIPInputStream(new FileInputStream(downloadData("corpus"))))))
         {
-            String line = br.readLine();
-            if (line.charAt(0) == '\uFEFF')
-                line = line.substring(1);
+            br.mark(1);
+            char[] bom = new char[1];
+            br.read(bom, 0, 1);
+            if (bom[0] != '\uFEFF' && bom[0] != '\uFFEF')
+                br.reset();
 
-            JSONObject obj = new JSONObject(line);
+            JSONObject obj = new JSONObject(new JSONTokener(br));
             JSONArray data = obj.getJSONArray("TIPLOCDATA");
 
             PreparedStatement ps = conn.prepareStatement("INSERT INTO corpus (tiploc, stanox, tps_name, crs) " +
@@ -165,17 +173,20 @@ public class ReadSchedule
         System.out.println("Downloading and processing SMART dataset...");
         try (BufferedReader br = new BufferedReader(new InputStreamReader(new GZIPInputStream(new FileInputStream(downloadData("smart"))))))
         {
-            String line = br.readLine();
-            if (line.charAt(0) == '\uFEFF')
-                line = line.substring(1);
+            br.mark(1);
+            char[] bom = new char[1];
+            br.read(bom, 0, 1);
+            if (bom[0] != '\uFEFF' && bom[0] != '\uFFEF')
+                br.reset();
 
-            JSONObject obj = new JSONObject(line);
+            JSONObject obj = new JSONObject(new JSONTokener(br));
             JSONArray data = obj.getJSONArray("BERTHDATA");
 
             PreparedStatement ps = conn.prepareStatement("DELETE from smart WHERE manual=0");
             ps.executeUpdate();
 
-            ps = conn.prepareStatement("INSERT INTO smart (stanox, td, reports, max_offset) VALUES (?,?,1,?) ON DUPLICATE KEY UPDATE reports=1, max_offset=GREATEST(max_offset, VALUES(max_offset))");
+            ps = conn.prepareStatement("INSERT INTO smart (stanox, td, reports, max_offset) VALUES (?,?,1,?) " +
+                    "ON DUPLICATE KEY UPDATE reports=1, max_offset=GREATEST(max_offset, VALUES(max_offset))");
             for (Object l : data)
             {
                 JSONObject loc = (JSONObject) l;
@@ -212,7 +223,7 @@ public class ReadSchedule
 
         System.out.println("Downloading and extracting CIF dataset...");
 
-        File cifFile = new File(System.getProperty("java.io.tmpdir"),
+        File cifFile = new File(TEMP_DIR,
                 new SimpleDateFormat("yyyy-MM-dd").format(new Date()) + "-toc-"
                         + (config.getBoolean("fullCif") ? "full" : config.getString("cifDay")) + ".CIF");
         gUnzipCIF(cifFile, config.getBoolean("fullCif") ? "cif-full" : ("cif-update-" + config.getString("cifDay")));
@@ -230,31 +241,21 @@ public class ReadSchedule
             CIFBSRecord recordBS = null;
             List<CIFLocRecord> schedule = new ArrayList<>();
 
-            PreparedStatement psHD = conn.prepareStatement("INSERT INTO cif_files (current_ref,last_ref,date," +
-                    "update_type,error_count) VALUES(?,?,?,?,?)");
-            PreparedStatement psTI = conn.prepareStatement("INSERT INTO corpus (tiploc,stanox,tps_name,crs) " +
-                    "VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE stanox=VALUES(stanox), tps_name=VALUES(tps_name), " +
-                    "crs=VALUES(crs)");
+            PreparedStatement psHD = conn.prepareStatement("INSERT INTO cif_files (current_ref,last_ref,date,update_type,error_count) " +
+                    "VALUES (?,?,?,?,?)");
+            PreparedStatement psTI = conn.prepareStatement("INSERT INTO corpus (tiploc,stanox,tps_name,crs) VALUES (?,?,?,?) " +
+                    "ON DUPLICATE KEY UPDATE stanox=VALUES(stanox), tps_name=VALUES(tps_name), crs=VALUES(crs)");
             PreparedStatement psBS = conn.prepareStatement("INSERT INTO schedules VALUES " +
-                    "(?,?,?,?,'C',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-            PreparedStatement psSchedCreateTime = conn.prepareStatement("SELECT creation_timestamp FROM " +
-                    "schedules WHERE schedule_uid=? AND stp_indicator=? AND date_from=? AND schedule_source='C'");
-            PreparedStatement psBSDelLocs = conn.prepareStatement("DELETE FROM schedule_locations WHERE " +
-                    "schedule_uid=? AND stp_indicator=? AND date_from=? AND schedule_source='C'");
-            PreparedStatement psBSDelScheds = conn.prepareStatement("DELETE FROM schedules WHERE schedule_uid=? " +
-                    "AND stp_indicator = ? AND date_from = ? AND schedule_source = 'C'");
-            PreparedStatement psBSDelCR = conn.prepareStatement("DELETE FROM change_en_route WHERE schedule_uid=? " +
-                    "AND stp_indicator = ? AND date_from = ? AND schedule_source = 'C'");
-            PreparedStatement psBSSafeDelLocs = conn.prepareStatement("DELETE FROM schedule_locations WHERE " +
-                    "schedule_uid=? AND stp_indicator=? AND date_from=? AND schedule_source='C'");
-            PreparedStatement psBSSafeDelScheds = conn.prepareStatement("DELETE FROM schedules WHERE schedule_uid=? " +
-                    "AND stp_indicator = ? AND date_from = ? AND schedule_source = 'C'");
-            PreparedStatement psBSSafeDelCR = conn.prepareStatement("DELETE FROM change_en_route WHERE schedule_uid=? " +
-                    "AND stp_indicator = ? AND date_from = ? AND schedule_source = 'C'");
-            PreparedStatement psLoc = conn.prepareStatement("INSERT INTO schedule_locations VALUES " +
-                    "(?,?,?,'C',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-            PreparedStatement psCR = conn.prepareStatement("INSERT INTO change_en_route VALUES " +
-                    "(?,?,?,'C',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+                    "(?,?,?,?,?,'C',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            PreparedStatement psSchedCreateTime = conn.prepareStatement("SELECT creation_timestamp FROM schedules WHERE schedule_key=?");
+            PreparedStatement psBSDelLocs = conn.prepareStatement("DELETE FROM schedule_locations WHERE schedule_key=?");
+            PreparedStatement psBSDelScheds = conn.prepareStatement("DELETE FROM schedules WHERE schedule_key=?");
+            PreparedStatement psBSDelCR = conn.prepareStatement("DELETE FROM change_en_route WHERE schedule_key=?");
+            PreparedStatement psBSSafeDelLocs = conn.prepareStatement("DELETE FROM schedule_locations WHERE schedule_key=?");
+            PreparedStatement psBSSafeDelScheds = conn.prepareStatement("DELETE FROM schedules WHERE schedule_key=?");
+            PreparedStatement psBSSafeDelCR = conn.prepareStatement("DELETE FROM change_en_route WHERE schedule_key=?");
+            PreparedStatement psLoc = conn.prepareStatement("INSERT INTO schedule_locations VALUES (?,?,?,?,'C',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            PreparedStatement psCR = conn.prepareStatement("INSERT INTO change_en_route VALUES (?,?,?,?,'C',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
 
             Calendar c = Calendar.getInstance();
             c.set(Calendar.DAY_OF_MONTH, c.get(Calendar.DAY_OF_MONTH)-1);
@@ -308,54 +309,54 @@ public class ReadSchedule
                                 }
                             }
 
-                            try (PreparedStatement ps = conn.prepareStatement("SELECT current_ref FROM cif_files WHERE date=? AND update_type='U'"))
-                            {
-                                ps.setString(1, yesterdayDMY);
-                                try (ResultSet rs = ps.executeQuery())
-                                {
-                                    if (rs.first())
-                                    {
-                                        if (!recordHD.lastFileReference.equals(rs.getString(1)))
-                                        {
-                                            if (!config.getBoolean("force"))
-                                            {
-                                                System.err.println("File references don't match, 'force' arg required. Aborted. (" + recordHD.lastFileReference + "/" + rs.getString(1) + ")");
-                                                System.exit(4);
-                                            }
-                                            else
-                                            {
-                                                System.out.println("File references don't match, forcing update anyway");
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
                             if (config.getBoolean("fullCif"))
                             {
-                                try (PreparedStatement ps1 = conn.prepareStatement("DELETE FROM schedules WHERE schedule_source='C'");
-                                     PreparedStatement ps2 = conn.prepareStatement("DELETE FROM schedule_locations WHERE schedule_source='C'");
-                                     PreparedStatement ps3 = conn.prepareStatement("DELETE FROM change_en_route WHERE schedule_source='C'")) {
-                                    ps1.execute();
+                                try (//PreparedStatement ps1 = conn.prepareStatement("INSERT INTO stored_timestamps SELECT schedule_key, creation_timestamp, revision_timestamp FROM schedules WHERE schedule_source='C' ON DUPLICATE KEY UPDATE creation_timestamp=VALUES(creation_timestamp), revision_timestamp=VALUES(revision_timestamp);");
+                                     PreparedStatement ps2 = conn.prepareStatement("DELETE FROM schedules WHERE schedule_source='C'");
+                                     PreparedStatement ps3 = conn.prepareStatement("DELETE FROM schedule_locations WHERE schedule_source='C'");
+                                     PreparedStatement ps4 = conn.prepareStatement("DELETE FROM change_en_route WHERE schedule_source='C'")) {
+                                    //System.out.print("Backing up timestamps...");
+                                    //ps1.execute();
+                                    //System.out.println();
+                                    System.out.print("Deleting CIF data...");
                                     ps2.execute();
                                     ps3.execute();
+                                    ps4.execute();
+                                    System.out.println();
                                 }
                             }
                             else
                             {
+                                try (PreparedStatement ps = conn.prepareStatement("SELECT current_ref FROM cif_files WHERE date=? AND update_type='U'"))
+                                {
+                                    ps.setString(1, yesterdayDMY);
+                                    try (ResultSet rs = ps.executeQuery())
+                                    {
+                                        if (rs.first())
+                                        {
+                                            if (!recordHD.lastFileReference.equals(rs.getString(1)))
+                                            {
+                                                if (!config.getBoolean("force"))
+                                                {
+                                                    System.err.println("File references don't match, 'force' arg required. Aborted. (" + recordHD.lastFileReference + "/" + rs.getString(1) + ")");
+                                                    System.exit(4);
+                                                }
+                                                else
+                                                {
+                                                    System.out.println("File references don't match, forcing update anyway");
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 System.out.print("Deleting expired (" + yesterdayYMD + ") schedules... ");
 
                                 PreparedStatement psCFDel3 = conn.prepareStatement("DELETE schedules, " +
-                                        "schedule_locations, change_en_route FROM schedules LEFT JOIN " +
-                                        "schedule_locations ON schedules.schedule_uid=schedule_locations.schedule_uid " +
-                                        "AND schedules.date_from=schedule_locations.date_from AND " +
-                                        "schedules.stp_indicator=schedule_locations.stp_indicator AND " +
-                                        "schedules.schedule_source=schedule_locations.schedule_source LEFT " +
-                                        "JOIN change_en_route ON schedules.schedule_uid=change_en_route.schedule_uid " +
-                                        "AND schedules.date_from=change_en_route.date_from AND " +
-                                        "schedules.stp_indicator=change_en_route.stp_indicator AND " +
-                                        "schedules.schedule_source=change_en_route.schedule_source WHERE " +
-                                        "CAST(schedules.date_to AS INT) < ?");
+                                        "schedule_locations, change_en_route FROM schedules " +
+                                        "LEFT JOIN schedule_locations ON schedules.schedule_key=schedule_locations.schedule_key " +
+                                        "LEFT JOIN change_en_route ON schedules.schedule_key=change_en_route.schedule_key " +
+                                        "WHERE CAST(schedules.date_to AS INT) < ?");
                                 psCFDel3.setInt(1, Integer.parseInt(yesterdayYMD));
                                 System.out.println(psCFDel3.executeUpdate());
                             }
@@ -406,9 +407,7 @@ public class ReadSchedule
                             long creationTS = System.currentTimeMillis();
                             if ("R".equals(recordBS.transactionType))
                             {
-                                psSchedCreateTime.setString(1, recordBS.trainUID);
-                                psSchedCreateTime.setString(2, recordBS.stpIndicator);
-                                psSchedCreateTime.setString(3, recordBS.dateRunsFrom);
+                                psSchedCreateTime.setString(1, recordBS.scheduleKey);
                                 try (ResultSet rs = psSchedCreateTime.executeQuery())
                                 {
                                     if (rs.next())
@@ -418,72 +417,61 @@ public class ReadSchedule
 
                             if ("D".equals(recordBS.transactionType) || "R".equals(recordBS.transactionType))
                             {
-                                psBSDelLocs.setString(1, recordBS.trainUID);
-                                psBSDelLocs.setString(2, recordBS.stpIndicator);
-                                psBSDelLocs.setString(3, recordBS.dateRunsFrom);
+                                psBSDelLocs.setString(1, recordBS.scheduleKey);
                                 psBSDelLocs.addBatch();
-                                psBSDelScheds.setString(1, recordBS.trainUID);
-                                psBSDelScheds.setString(2, recordBS.stpIndicator);
-                                psBSDelScheds.setString(3, recordBS.dateRunsFrom);
+                                psBSDelScheds.setString(1, recordBS.scheduleKey);
                                 psBSDelScheds.addBatch();
-                                psBSDelCR.setString(1, recordBS.trainUID);
-                                psBSDelCR.setString(2, recordBS.stpIndicator);
-                                psBSDelCR.setString(3, recordBS.dateRunsFrom);
+                                psBSDelCR.setString(1, recordBS.scheduleKey);
                                 psBSDelCR.addBatch();
                             }
                             else if (config.getBoolean("isAuto") || config.getBoolean("force"))
                             {
                                 // Always delete previous schedules to avoid update failures if isAuto, separate for tracking stats
-                                psBSSafeDelLocs.setString(1, recordBS.trainUID);
-                                psBSSafeDelLocs.setString(2, recordBS.stpIndicator);
-                                psBSSafeDelLocs.setString(3, recordBS.dateRunsFrom);
+                                psBSSafeDelLocs.setString(1, recordBS.scheduleKey);
                                 psBSSafeDelLocs.addBatch();
-                                psBSSafeDelScheds.setString(1, recordBS.trainUID);
-                                psBSSafeDelScheds.setString(2, recordBS.stpIndicator);
-                                psBSSafeDelScheds.setString(3, recordBS.dateRunsFrom);
+                                psBSSafeDelScheds.setString(1, recordBS.scheduleKey);
                                 psBSSafeDelScheds.addBatch();
-                                psBSSafeDelCR.setString(1, recordBS.trainUID);
-                                psBSSafeDelCR.setString(2, recordBS.stpIndicator);
-                                psBSSafeDelCR.setString(3, recordBS.dateRunsFrom);
+                                psBSSafeDelCR.setString(1, recordBS.scheduleKey);
                                 psBSSafeDelCR.addBatch();
                             }
 
                             if ("N".equals(recordBS.transactionType) || "R".equals(recordBS.transactionType))
                             {
-                                psBS.setString(1, recordBS.trainUID);
-                                psBS.setString(2, recordBS.dateRunsFrom);
-                                psBS.setString(3, recordBS.dateRunsTo);
-                                psBS.setString(4, recordBS.stpIndicator);
-                                psBS.setString(5, recordBS.daysRun);
-                                psBS.setString(6, recordBS.trainIdentity);
-                                for (int i = 7; i <= 13; i++)
-                                    psBS.setBoolean(i, recordBS.daysRun.charAt(i - 7) == '1');
+                                psBS.setString(1, recordBS.scheduleKey);
+                                psBS.setString(2, recordBS.trainUID);
+                                psBS.setString(3, recordBS.dateRunsFrom);
+                                psBS.setString(4, recordBS.dateRunsTo);
+                                psBS.setString(5, recordBS.stpIndicator);
+                                psBS.setString(6, recordBS.daysRun);
+                                psBS.setString(7, recordBS.trainIdentity);
+                                for (int i = 8; i <= 14; i++)
+                                    psBS.setBoolean(i, recordBS.daysRun.charAt(i - 8) == '1');
 
-                                //psBS.setBoolean(14, over_midnight); set in LT
-                                psBS.setLong(15, creationTS);
+                              //psBS.setBoolean(15, over_midnight); set in LT
+                                psBS.setLong(16, creationTS);
                                 if ("R".equals(recordBS.transactionType))
-                                    psBS.setLong(16, System.currentTimeMillis());
+                                    psBS.setLong(17, System.currentTimeMillis());
                                 else
-                                    psBS.setNull(16, Types.BIGINT);
-                                psBS.setString(17, recordBS.trainCategory);
-                                psBS.setString(18, recordBS.trainStatus);
-                                psBS.setString(19, recordBS.headcode);
-                                psBS.setString(20, recordBS.trainServiceCode);
-                                psBS.setString(21, recordBS.powerType);
-                                psBS.setString(22, recordBS.timingLoad);
-                                psBS.setString(23, recordBS.speed);
-                                psBS.setString(24, recordBS.operatingChars);
-                                psBS.setString(25, recordBS.trainClass);
-                                psBS.setString(26, recordBS.sleepers);
-                                psBS.setString(27, recordBS.reservations);
-                                psBS.setString(28, recordBS.cateringCode);
-                                psBS.setString(29, recordBS.serviceBranding);
-                                //psBS.setString(30, toc_code); set in BX
+                                    psBS.setNull(17, Types.BIGINT);
+                                psBS.setString(18, recordBS.trainCategory);
+                                psBS.setString(19, recordBS.trainStatus);
+                                psBS.setString(20, recordBS.headcode);
+                                psBS.setString(21, recordBS.trainServiceCode);
+                                psBS.setString(22, recordBS.powerType);
+                                psBS.setString(23, recordBS.timingLoad);
+                                psBS.setString(24, recordBS.speed);
+                                psBS.setString(25, recordBS.operatingChars);
+                                psBS.setString(26, recordBS.trainClass);
+                                psBS.setString(27, recordBS.sleepers);
+                                psBS.setString(28, recordBS.reservations);
+                                psBS.setString(29, recordBS.cateringCode);
+                                psBS.setString(30, recordBS.serviceBranding);
+                              //psBS.setString(31, toc_code); set in BX
 
                                 if ("C".equals(recordBS.stpIndicator))
                                 {
-                                    psBS.setBoolean(14, false);
-                                    psBS.setString(30, "");
+                                    psBS.setBoolean(15, false);
+                                    psBS.setString(31, "");
                                     psBS.addBatch();
                                 }
                             }
@@ -493,31 +481,32 @@ public class ReadSchedule
                         case BX:
                         {
                             CIFBXRecord recordBX = (CIFBXRecord)record;
-                            psBS.setString(30, recordBX.atocCode);
+                            psBS.setString(31, recordBX.atocCode);
 
                             break;
                         }
                         case LO:
                         {
                             CIFLORecord recordLO = (CIFLORecord) record;
-                            psLoc.setString(1, recordBS.trainUID);
-                            psLoc.setString(2, recordBS.dateRunsFrom);
-                            psLoc.setString(3, recordBS.stpIndicator);
-                            psLoc.setString(4, recordLO.getLocation());
-                            psLoc.setString(5, "");
-                            psLoc.setString(6, recordLO.scheduledDepartureTime);
-                            psLoc.setString(7, "");
+                            psLoc.setString(1, recordBS.scheduleKey);
+                            psLoc.setString(2, recordBS.trainUID);
+                            psLoc.setString(3, recordBS.dateRunsFrom);
+                            psLoc.setString(4, recordBS.stpIndicator);
+                            psLoc.setString(5, recordLO.getLocation());
+                            psLoc.setString(6, "");
+                            psLoc.setString(7, recordLO.scheduledDepartureTime);
                             psLoc.setString(8, "");
-                            psLoc.setString(9, recordLO.publicDepartureTime);
-                            psLoc.setString(10, "O");
-                            psLoc.setString(11, recordLO.platform);
-                            psLoc.setString(12, "");
-                            psLoc.setString(13, recordLO.line);
-                            psLoc.setString(14, recordLO.activity);
-                            psLoc.setString(15, recordLO.engineeringAllowance);
-                            psLoc.setString(16, recordLO.pathingAllowance);
-                            psLoc.setString(17, recordLO.performanceAllowance);
-                            psLoc.setInt(18, 0);
+                            psLoc.setString(9, "");
+                            psLoc.setString(10, recordLO.publicDepartureTime);
+                            psLoc.setString(11, "O");
+                            psLoc.setString(12, recordLO.platform);
+                            psLoc.setString(13, "");
+                            psLoc.setString(14, recordLO.line);
+                            psLoc.setString(15, recordLO.activity);
+                            psLoc.setString(16, recordLO.engineeringAllowance);
+                            psLoc.setString(17, recordLO.pathingAllowance);
+                            psLoc.setString(18, recordLO.performanceAllowance);
+                            psLoc.setInt(19, 0);
                             psLoc.addBatch();
                             schedule.add(recordLO);
                             break;
@@ -525,24 +514,25 @@ public class ReadSchedule
                         case LI:
                         {
                             CIFLIRecord recordLI = (CIFLIRecord) record;
-                            psLoc.setString(1, recordBS.trainUID);
-                            psLoc.setString(2, recordBS.dateRunsFrom);
-                            psLoc.setString(3, recordBS.stpIndicator);
-                            psLoc.setString(4, recordLI.getLocation());
-                            psLoc.setString(5, recordLI.scheduledArrivalTime);
-                            psLoc.setString(6, recordLI.scheduledDepartureTime);
-                            psLoc.setString(7, recordLI.scheduledPassTime);
-                            psLoc.setString(8, recordLI.publicArrivalTime);
-                            psLoc.setString(9, recordLI.publicDepartureTime);
-                            psLoc.setString(10, "I");
-                            psLoc.setString(11, recordLI.platform);
-                            psLoc.setString(12, recordLI.path);
-                            psLoc.setString(13, recordLI.line);
-                            psLoc.setString(14, recordLI.activity);
-                            psLoc.setString(15, recordLI.engineeringAllowance);
-                            psLoc.setString(16, recordLI.pathingAllowance);
-                            psLoc.setString(17, recordLI.performanceAllowance);
-                            psLoc.setInt(18, schedule.size());
+                            psLoc.setString(1, recordBS.scheduleKey);
+                            psLoc.setString(2, recordBS.trainUID);
+                            psLoc.setString(3, recordBS.dateRunsFrom);
+                            psLoc.setString(4, recordBS.stpIndicator);
+                            psLoc.setString(5, recordLI.getLocation());
+                            psLoc.setString(6, recordLI.scheduledArrivalTime);
+                            psLoc.setString(7, recordLI.scheduledDepartureTime);
+                            psLoc.setString(8, recordLI.scheduledPassTime);
+                            psLoc.setString(9, recordLI.publicArrivalTime);
+                            psLoc.setString(10, recordLI.publicDepartureTime);
+                            psLoc.setString(11, "I");
+                            psLoc.setString(12, recordLI.platform);
+                            psLoc.setString(13, recordLI.path);
+                            psLoc.setString(14, recordLI.line);
+                            psLoc.setString(15, recordLI.activity);
+                            psLoc.setString(16, recordLI.engineeringAllowance);
+                            psLoc.setString(17, recordLI.pathingAllowance);
+                            psLoc.setString(18, recordLI.performanceAllowance);
+                            psLoc.setInt(19, schedule.size());
                             psLoc.addBatch();
                             schedule.add(recordLI);
                             break;
@@ -550,29 +540,30 @@ public class ReadSchedule
                         case LT:
                         {
                             CIFLTRecord recordLT = (CIFLTRecord) record;
-                            psLoc.setString(1, recordBS.trainUID);
-                            psLoc.setString(2, recordBS.dateRunsFrom);
-                            psLoc.setString(3, recordBS.stpIndicator);
-                            psLoc.setString(4, recordLT.getLocation());
-                            psLoc.setString(5, recordLT.scheduledArrivalTime);
-                            psLoc.setString(6, "");
+                            psLoc.setString(1, recordBS.scheduleKey);
+                            psLoc.setString(2, recordBS.trainUID);
+                            psLoc.setString(3, recordBS.dateRunsFrom);
+                            psLoc.setString(4, recordBS.stpIndicator);
+                            psLoc.setString(5, recordLT.getLocation());
+                            psLoc.setString(6, recordLT.scheduledArrivalTime);
                             psLoc.setString(7, "");
-                            psLoc.setString(8, recordLT.publicArrivalTime);
-                            psLoc.setString(9, "");
-                            psLoc.setString(10, "T");
-                            psLoc.setString(11, recordLT.platform);
-                            psLoc.setString(12, recordLT.path);
-                            psLoc.setString(13, "");
-                            psLoc.setString(14, recordLT.activity);
-                            psLoc.setString(15, "");
+                            psLoc.setString(8, "");
+                            psLoc.setString(9, recordLT.publicArrivalTime);
+                            psLoc.setString(10, "");
+                            psLoc.setString(11, "T");
+                            psLoc.setString(12, recordLT.platform);
+                            psLoc.setString(13, recordLT.path);
+                            psLoc.setString(14, "");
+                            psLoc.setString(15, recordLT.activity);
                             psLoc.setString(16, "");
                             psLoc.setString(17, "");
-                            psLoc.setInt(18, schedule.size());
+                            psLoc.setString(18, "");
+                            psLoc.setInt(19, schedule.size());
                             psLoc.addBatch();
                             schedule.add(recordLT);
 
                             CIFLORecord recordLO = (CIFLORecord) schedule.get(0);
-                            psBS.setBoolean(14, Double.parseDouble(recordLO.scheduledDepartureTime.replace("H", ".5")) >
+                            psBS.setBoolean(15, Double.parseDouble(recordLO.scheduledDepartureTime.replace("H", ".5")) >
                                     Double.parseDouble(recordLT.scheduledArrivalTime.replace("H", ".5")));
 
                             psBS.addBatch();
@@ -582,24 +573,25 @@ public class ReadSchedule
                         case CR:
                         {
                             CIFCRRecord recortCR = (CIFCRRecord) record;
-                            psCR.setString(1, recordBS.trainUID);
-                            psCR.setString(2, recordBS.dateRunsFrom);
-                            psCR.setString(3, recordBS.stpIndicator);
-                            psCR.setString(4, recortCR.getLocation());
-                            psCR.setString(5, recortCR.trainCategory);
-                            psCR.setString(6, recortCR.trainIdentity);
-                            psCR.setString(7, recortCR.headcode);
-                            psCR.setString(8, recortCR.trainServiceCode);
-                            psCR.setString(9, recortCR.powerType);
-                            psCR.setString(10, recortCR.timingLoad);
-                            psCR.setString(11, recortCR.speed);
-                            psCR.setString(12, recortCR.operatingChars);
-                            psCR.setString(13, recortCR.trainClass);
-                            psCR.setString(14, recortCR.sleepers);
-                            psCR.setString(15, recortCR.reservations);
-                            psCR.setString(16, recortCR.cateringCode);
-                            psCR.setString(17, recortCR.serviceBranding);
-                            psCR.setInt(18, schedule.size());
+                            psCR.setString(1, recordBS.scheduleKey);
+                            psCR.setString(2, recordBS.trainUID);
+                            psCR.setString(3, recordBS.dateRunsFrom);
+                            psCR.setString(4, recordBS.stpIndicator);
+                            psCR.setString(5, recortCR.getLocation());
+                            psCR.setString(6, recortCR.trainCategory);
+                            psCR.setString(7, recortCR.trainIdentity);
+                            psCR.setString(8, recortCR.headcode);
+                            psCR.setString(9, recortCR.trainServiceCode);
+                            psCR.setString(10, recortCR.powerType);
+                            psCR.setString(11, recortCR.timingLoad);
+                            psCR.setString(12, recortCR.speed);
+                            psCR.setString(13, recortCR.operatingChars);
+                            psCR.setString(14, recortCR.trainClass);
+                            psCR.setString(15, recortCR.sleepers);
+                            psCR.setString(16, recortCR.reservations);
+                            psCR.setString(17, recortCR.cateringCode);
+                            psCR.setString(18, recortCR.serviceBranding);
+                            psCR.setInt(19, schedule.size());
                             psCR.addBatch();
                             break;
                         }
@@ -691,6 +683,20 @@ public class ReadSchedule
                 System.out.print(psActivations.executeUpdate());
                 System.out.print(" + ");
                 System.out.println(psTRUSTReports.executeUpdate());
+
+                //if (config.getBoolean("fullCif"))
+                //{
+                //    PreparedStatement psTSUpdate = conn.prepareStatement("UPDATE schedules s INNER JOIN (SELECT " +
+                //            "schedule_key, creation_timestamp, revision_timestamp FROM stored_timestamps) AS ts ON " +
+                //            "s.schedule_key=ts.schedule_key SET s.creation_timestamp=ts.creation_timestamp, " +
+                //            "s.revision_timestamp=ts.revision_timestamp;");
+                //    PreparedStatement psTSDel = conn.prepareStatement("DELETE FROM stored_timestamps;");
+
+                //    System.out.print("Restoring backed up timestamps...");
+                //    psTSUpdate.execute();
+                //    psTSDel.execute();
+                //    System.out.println();
+                //}
             }
             catch (SQLException sqlex)
             {
@@ -755,20 +761,21 @@ public class ReadSchedule
     {
         File file;
         String url;
+        String NROD_URL = "https://" + config.optString("NROD_Static_Location", "datafeeds.networkrail.co.uk");
         if ("corpus".equals(type))
         {
-            file = new File(System.getProperty("java.io.tmpdir"), new SimpleDateFormat("yyyy-MM-dd").format(new Date()) + "-CORPUSExtract.json.gz");
-            url = "https://datafeeds.networkrail.co.uk/ntrod/SupportingFileAuthenticate?type=CORPUS";
+            file = new File(TEMP_DIR, new SimpleDateFormat("yyyy-MM-dd").format(new Date()) + "-CORPUSExtract.json.gz");
+            url = NROD_URL + "/ntrod/SupportingFileAuthenticate?type=CORPUS";
         }
         else if ("smart".equals(type))
         {
-            file = new File(System.getProperty("java.io.tmpdir"), new SimpleDateFormat("yyyy-MM-dd").format(new Date()) + "-SMARTExtract.json.gz");
-            url = "https://datafeeds.networkrail.co.uk/ntrod/SupportingFileAuthenticate?type=SMART";
+            file = new File(TEMP_DIR, new SimpleDateFormat("yyyy-MM-dd").format(new Date()) + "-SMARTExtract.json.gz");
+            url = NROD_URL + "/ntrod/SupportingFileAuthenticate?type=SMART";
         }
         else if ("cif-full".equals(type))
         {
-            file = new File(System.getProperty("java.io.tmpdir"), new SimpleDateFormat("yyyy-MM-dd").format(new Date()) + "-toc-full.CIF.gz");
-            url = "https://datafeeds.networkrail.co.uk/ntrod/CifFileAuthenticate?type=CIF_ALL_FULL_DAILY&day=toc-full.CIF.gz";
+            file = new File(TEMP_DIR, new SimpleDateFormat("yyyy-MM-dd").format(new Date()) + "-toc-full.CIF.gz");
+            url = NROD_URL + "/ntrod/CifFileAuthenticate?type=CIF_ALL_FULL_DAILY&day=toc-full.CIF.gz";
         }
         else if (type.startsWith("cif-update-") && type.length() == 14)
         {
@@ -776,17 +783,16 @@ public class ReadSchedule
             if (!Arrays.asList("sun","mon","tue","wed","thu","fri","sat").contains(day))
                 throw new IllegalArgumentException(day + " is not a valid day");
 
-            file = new File(System.getProperty("java.io.tmpdir"), new SimpleDateFormat("yyyy-MM-dd").format(new Date()) + "-toc-daily-" + day + ".CIF.gz");
-            url = "https://datafeeds.networkrail.co.uk/ntrod/CifFileAuthenticate?type=CIF_ALL_UPDATE_DAILY&day=toc-update-" + day + ".CIF.gz";
+            file = new File(TEMP_DIR, new SimpleDateFormat("yyyy-MM-dd").format(new Date()) + "-toc-daily-" + day + ".CIF.gz");
+            url = NROD_URL + "/ntrod/CifFileAuthenticate?type=CIF_ALL_UPDATE_DAILY&day=toc-update-" + day + ".CIF.gz";
         }
         else
             throw new IllegalArgumentException("'" + type + "' is not a downloadable file type");
 
-        InputStream in;
         if (!file.exists())
         {
             HttpsURLConnection con = (HttpsURLConnection) new URL(url).openConnection();
-            con.setRequestProperty("Authorization", "Basic " + DatatypeConverter.printBase64Binary((AUTH.getString("NROD_Username") + ":" + AUTH.getString("NROD_Password")).getBytes()).trim());
+            con.setRequestProperty("Authorization", "Basic " + Base64.getEncoder().encodeToString((config.getString("NROD_Username") + ":" + config.getString("NROD_Password")).getBytes()));
             con.setInstanceFollowRedirects(false);
             System.out.println("Response 1: " + con.getResponseCode() + " " + con.getResponseMessage());
             if (con.getResponseCode() == HttpsURLConnection.HTTP_MOVED_TEMP || con.getResponseCode() == HttpsURLConnection.HTTP_MOVED_PERM)
@@ -807,7 +813,7 @@ public class ReadSchedule
 
             if (con.getResponseCode() / 100 == 2)
             {
-                in = con.getInputStream();
+                InputStream in = con.getInputStream();
 
                 Files.copy(in, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
                 in.close();
@@ -1087,6 +1093,7 @@ public class ReadSchedule
       //static final int[] lengths = {2, 1, 6, 6, 6, 7, 1, 1, 2, 4, 4, 1, 8, 1, 3, 4, 3, 6, 1, 1, 1, 1, 4, 4, 1, 1};
         static final int[] offsets = {2, 3, 9, 15, 21, 28, 29, 30, 32, 36, 40, 41, 49, 50, 53, 57, 60, 66, 67, 68, 69, 70, 74, 78, 79, 80};
         final String transactionType;
+        final String scheduleKey;
         final String trainUID;
         final String dateRunsFrom;
         final String dateRunsTo;
@@ -1141,6 +1148,8 @@ public class ReadSchedule
             serviceBranding = record.substring(offsets[i], offsets[++i]);
             ++i;
             stpIndicator = record.substring(offsets[i], offsets[++i]);
+
+            scheduleKey = trainUID + dateRunsFrom + stpIndicator + 'C';
         }
 
         @Override
@@ -1196,6 +1205,7 @@ public class ReadSchedule
     static class CIFLocRecord extends CIFRecord
     {
         private String location;
+        private char index;
 
         CIFLocRecord(CIFRecordType type)
         {
@@ -1206,10 +1216,20 @@ public class ReadSchedule
         {
             return location;
         }
+        char getIndex()
+        {
+            return index;
+        }
 
-        final void setLocation(String location)
+        final void setLocation(String location, String index)
+        {
+            setLocation(location, index.isEmpty() ? ' ' : index.charAt(0));
+        }
+
+        final void setLocation(String location, char index)
         {
             this.location = location;
+            this.index = index;
         }
     }
 
@@ -1217,8 +1237,8 @@ public class ReadSchedule
     {
       //static final int[] lengths = {2, 7, 1, 5, 4, 3, 3, 2, 2, 12, 2, 37};
         static final int[] offsets = {2, 9, 10, 15, 19, 22, 25, 27, 29, 41, 43, 80};
-      //public final String location;
-        final String locationIndex;
+      //final String location;
+      //final String locationIndex;
         final String scheduledDepartureTime;
         final String publicDepartureTime;
         final String platform;
@@ -1233,8 +1253,10 @@ public class ReadSchedule
             super(CIFRecordType.LO);
 
             int i = 0;
-            setLocation(record.substring(offsets[i], offsets[++i]));
-            locationIndex = record.substring(offsets[i], offsets[++i]);
+            setLocation(
+                    record.substring(offsets[i], offsets[++i]),
+                    record.substring(offsets[i], offsets[++i])
+            );
             scheduledDepartureTime = record.substring(offsets[i], offsets[++i]);
             publicDepartureTime = record.substring(offsets[i], offsets[++i]);
             platform = record.substring(offsets[i], offsets[++i]);
@@ -1249,7 +1271,7 @@ public class ReadSchedule
         public String toString()
         {
             return String.format("LO,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s",
-                                 getLocation(), locationIndex,
+                                 getLocation(), getIndex(),
                                  scheduledDepartureTime, publicDepartureTime,
                                  platform, line, engineeringAllowance,
                                  pathingAllowance, activity,
@@ -1261,8 +1283,8 @@ public class ReadSchedule
     {
       //static final int[] lengths = {2, 7, 1, 5, 5, 5, 4, 4, 3, 3, 3, 12, 2, 2, 2, 20};
         static final int[] offsets = {2, 9, 10, 15, 20, 25, 29, 33, 36, 39, 42, 54, 56, 58, 60, 80};
-      //public final String location;
-        final String locationIndex;
+      //final String location;
+      //final String locationIndex;
         final String scheduledArrivalTime;
         final String scheduledDepartureTime;
         final String scheduledPassTime;
@@ -1282,8 +1304,10 @@ public class ReadSchedule
             super(CIFRecordType.LI);
 
             int i = 0;
-            setLocation(record.substring(offsets[i], offsets[++i]));
-            locationIndex = record.substring(offsets[i], offsets[++i]);
+            setLocation(
+                    record.substring(offsets[i], offsets[++i]),
+                    record.substring(offsets[i], offsets[++i])
+            );
             scheduledArrivalTime = record.substring(offsets[i], offsets[++i]);
             scheduledDepartureTime = record.substring(offsets[i], offsets[++i]);
             scheduledPassTime = record.substring(offsets[i], offsets[++i]);
@@ -1302,7 +1326,7 @@ public class ReadSchedule
         public String toString()
         {
             return String.format("LI,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s",
-                                 getLocation(), locationIndex,
+                                 getLocation(), getIndex(),
                                  scheduledArrivalTime, scheduledDepartureTime,
                                  scheduledPassTime, publicArrivalTime,
                                  publicDepartureTime, platform, line, path,
@@ -1315,8 +1339,8 @@ public class ReadSchedule
     {
       //static final int[] lengths = {2, 7, 1, 5, 4, 3, 3, 12, 43};
         static final int[] offsets = {2, 9, 10, 15, 19, 22, 25, 37, 80};
-      //public final String location;
-        final String locationIndex;
+      //final String location;
+      //final String locationIndex;
         final String scheduledArrivalTime;
         final String publicArrivalTime;
         final String platform;
@@ -1328,8 +1352,10 @@ public class ReadSchedule
             super(CIFRecordType.LT);
 
             int i = 0;
-            setLocation(record.substring(offsets[i], offsets[++i]));
-            locationIndex = record.substring(offsets[i], offsets[++i]);
+            setLocation(
+                    record.substring(offsets[i], offsets[++i]),
+                    record.substring(offsets[i], offsets[++i])
+            );
             scheduledArrivalTime = record.substring(offsets[i], offsets[++i]);
             publicArrivalTime = record.substring(offsets[i], offsets[++i]);
             platform = record.substring(offsets[i], offsets[++i]);
@@ -1341,7 +1367,7 @@ public class ReadSchedule
         public String toString()
         {
             return String.format("LT,%s,%s,%s,%s,%s,%s,%s",
-                                 getLocation(), locationIndex,
+                                 getLocation(), getIndex(),
                                  scheduledArrivalTime, publicArrivalTime,
                                  platform, path, activity);
         }
@@ -1352,7 +1378,7 @@ public class ReadSchedule
       //static final int[] lengths = {2, 7, 1, 2, 4, 4, 1, 8, 1, 3, 4, 3, 6, 1, 1, 1, 1, 4, 4, 4, 5, 8, 5};
         static final int[] offsets = {2, 9, 10, 12, 16, 20, 21, 29, 30, 33, 37, 40, 46, 47, 48, 49, 50, 54, 58, 62, 67, 75, 80};
       //final String location;
-        final String locationIndex;
+      //final String locationIndex;
         final String trainCategory;
         final String trainIdentity;
         final String headcode;
@@ -1378,8 +1404,10 @@ public class ReadSchedule
             super(CIFRecordType.CR);
 
             int i = 0;
-            setLocation(record.substring(offsets[i], offsets[++i]));
-            locationIndex = record.substring(offsets[i], offsets[++i]);
+            setLocation(
+                    record.substring(offsets[i], offsets[++i]),
+                    record.substring(offsets[i], offsets[++i])
+            );
             trainCategory = record.substring(offsets[i], offsets[++i]);
             trainIdentity = record.substring(offsets[i], offsets[++i]);
             headcode = record.substring(offsets[i], offsets[++i]);
@@ -1406,7 +1434,7 @@ public class ReadSchedule
         {
             return String.format("CR,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
                 + "%s,%s,%s,%s,%s,%s,%s",
-                                 getLocation(), locationIndex, trainCategory,
+                                 getLocation(), getIndex(), trainCategory,
                                  trainIdentity, headcode, courseIndicator,
                                  trainServiceCode, businessSector, powerType,
                                  timingLoad, speed, operatingChars, trainClass,
